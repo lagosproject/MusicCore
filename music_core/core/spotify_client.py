@@ -26,7 +26,11 @@ class SpotifyClient:
         self,
         auth_mode: str = "public",
         scope: Optional[str] = None,
-        requests_timeout: int = 15
+        requests_timeout: int = 15,
+        cache_path: Optional[str] = None,
+        redirect_uri: Optional[str] = None,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
     ):
         """
         :param auth_mode: 'public' (SpotifyClientCredentials, no login) or 'user' (SpotifyOAuth)
@@ -36,10 +40,10 @@ class SpotifyClient:
         self.session = make_session()
         self._artist_cache: Dict[str, Dict[str, Any]] = {}
 
-        client_id = settings.spotipy_client_id
-        client_secret = settings.spotipy_client_secret
+        cid = client_id or settings.spotipy_client_id
+        csecret = client_secret or settings.spotipy_client_secret
 
-        if not client_id or not client_secret:
+        if not cid or not csecret:
             missing = settings.missing_spotify_credentials()
             raise EnvironmentError(
                 f"Missing Spotify credentials: {', '.join(missing)}. "
@@ -49,8 +53,8 @@ class SpotifyClient:
         # Public client (available in both modes for unauthenticated queries)
         self.sp_public = spotipy.Spotify(
             auth_manager=SpotifyClientCredentials(
-                client_id=client_id,
-                client_secret=client_secret
+                client_id=cid,
+                client_secret=csecret
             ),
             requests_session=self.session,
             requests_timeout=self.requests_timeout
@@ -69,13 +73,13 @@ class SpotifyClient:
                 )
             self.sp = spotipy.Spotify(
                 auth_manager=SpotifyOAuth(
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    redirect_uri=settings.spotipy_redirect_uri,
+                    client_id=cid,
+                    client_secret=csecret,
+                    redirect_uri=redirect_uri or settings.spotipy_redirect_uri,
                     scope=scope,
                     open_browser=True,
                     show_dialog=False,
-                    cache_path=settings.cache_path
+                    cache_path=cache_path or settings.cache_path
                 ),
                 requests_session=self.session,
                 requests_timeout=self.requests_timeout
