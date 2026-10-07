@@ -181,30 +181,42 @@ class SpotifyClient:
         country: str = "ES",
         album_type: str = "album,single,appears_on"
     ) -> List[Dict[str, Any]]:
-        """Paginates through artist albums."""
+        """
+        Paginates through artist albums by querying each requested group separately.
+        This prevents appears_on (which Spotify places at the very end) from being
+        starved out by extensive album/single discographies.
+        """
         aid = self.normalize_artist_id(artist_id)
-        albums = []
-        offset = 0
-        fetch_limit = 10  # Spotify now rejects limit > 10 on artist_albums with 400 Invalid limit
+        groups = [g.strip() for g in album_type.split(",") if g.strip()]
+        all_albums = []
+        seen_album_ids = set()
 
-        while True:
-            response = call_with_retry(
-                self.sp.artist_albums,
-                aid,
-                limit=fetch_limit,
-                offset=offset,
-                country=country,
-                album_type=album_type
-            )
-            items = response.get("items", [])
-            if not items:
-                break
-            albums.extend(items)
-            offset += fetch_limit
-            if offset >= response.get("total", 0) or len(albums) >= limit * 5:
-                break
+        for group in groups:
+            offset = 0
+            # For appears_on we scan up to 50 items (5 pages of 10)
+            # For album and single we scan up to 30 items each
+            max_group_items = 60 if group == "appears_on" else 30
+            while True:
+                response = call_with_retry(
+                    self.sp.artist_albums,
+                    aid,
+                    limit=10,
+                    offset=offset,
+                    country=country,
+                    album_type=group
+                )
+                items = response.get("items", [])
+                if not items:
+                    break
+                for it in items:
+                    if it["id"] not in seen_album_ids:
+                        seen_album_ids.add(it["id"])
+                        all_albums.append(it)
+                offset += 10
+                if offset >= response.get("total", 0) or offset >= max_group_items:
+                    break
 
-        return albums
+        return all_albums
 
     def get_album_tracks(self, album_uri_or_id: str) -> List[Dict[str, Any]]:
         """Fetch all tracks for a given album."""
