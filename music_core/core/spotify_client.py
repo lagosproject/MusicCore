@@ -122,27 +122,84 @@ class SpotifyClient:
             logger.error(f"Error searching artists for '{query}': {e}")
             return []
 
+    def scrape_web_artist(self, aid: str) -> Optional[Dict[str, Any]]:
+        """
+        Fallback parser that extracts artist profile and avatar directly from
+        the public Spotify Web page without using API quota (immune to 429).
+        """
+        import base64
+        import json
+        import re
+        import urllib.request
+        url = f"https://open.spotify.com/artist/{aid}"
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                content = resp.read().decode("utf-8")
+            match = re.search(r'<script id="initialState" type="text/plain">(.*?)</script>', content)
+            if match:
+                raw = base64.b64decode(match.group(1)).decode("utf-8")
+                data = json.loads(raw)
+                items = data.get("entities", {}).get("items", {})
+                key = f"spotify:artist:{aid}"
+                if key in items:
+                    art = items[key]
+                    name = art.get("profile", {}).get("name")
+                    visuals = art.get("visuals") or {}
+                    avatar = visuals.get("avatarImage") or {}
+                    sources = avatar.get("sources", [])
+                    img = sources[0].get("url") if sources else None
+                    if name:
+                        return {
+                            "id": aid,
+                            "name": name,
+                            "url": img,
+                            "external_url": f"https://open.spotify.com/artist/{aid}",
+                            "genres": []
+                        }
+        except Exception as e:
+            logger.debug(f"Web scraping fallback failed for artist {aid}: {e}")
+        return None
+
     def get_artist(self, artist_id: str) -> Dict[str, Any]:
-        """Fetch details of a single artist with in-memory caching."""
+        """Fetch details of a single artist with in-memory caching and resilient web fallback."""
         aid = self.normalize_artist_id(artist_id)
         if aid in self._artist_cache:
             return self._artist_cache[aid]
 
-        data = call_with_retry(self.sp.artist, aid)
-        artist_obj = {
-            "id": data.get("id", aid),
-            "name": data.get("name", f"Artist {aid[:6]}"),
-            "url": data.get("images", [{}])[0].get("url") if data.get("images") else None,
-            "external_url": data.get("external_urls", {}).get("spotify", ""),
-            "genres": data.get("genres", [])
-        }
+        try:
+            data = call_with_retry(self.sp.artist, aid)
+            artist_obj = {
+                "id": data.get("id", aid),
+                "name": data.get("name", f"Artist {aid[:6]}"),
+                "url": data.get("images", [{}])[0].get("url") if data.get("images") else None,
+                "external_url": data.get("external_urls", {}).get("spotify", ""),
+                "genres": data.get("genres", [])
+            }
+        except Exception as e:
+            logger.warning(f"Spotify API failed for artist {aid} ({e}), trying public web fallback...")
+            web_obj = self.scrape_web_artist(aid)
+            if web_obj:
+                artist_obj = web_obj
+            else:
+                artist_obj = {
+                    "id": aid,
+                    "name": f"Unknown ({aid[:6]})",
+                    "url": None,
+                    "external_url": f"https://open.spotify.com/artist/{aid}",
+                    "genres": []
+                }
+
         self._artist_cache[aid] = artist_obj
         return artist_obj
 
     def get_artists(self, artist_ids: List[str], max_workers: int = 5) -> List[Dict[str, Any]]:
         """
         Bypasses Spotify's 403 Forbidden on GET /v1/artists?ids=... by fetching
-        single artists concurrently using a worker pool and caching.
+        single artists concurrently using a worker pool, caching, and web fallback.
         """
         unique_ids = list(dict.fromkeys(self.normalize_artist_id(aid) for aid in artist_ids if aid))
         results: Dict[str, Dict[str, Any]] = {}
@@ -164,7 +221,9 @@ class SpotifyClient:
                         results[aid] = res
                     except Exception as e:
                         logger.warning(f"Could not fetch artist {aid}: {e}")
-                        results[aid] = {
+                        # Final fallback
+                        web_obj = self.scrape_web_artist(aid)
+                        results[aid] = web_obj or {
                             "id": aid,
                             "name": f"Unknown ({aid[:6]})",
                             "url": None,

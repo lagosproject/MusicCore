@@ -41,18 +41,34 @@ class AudioPreviewResolver:
             logger.warning(f"Could not save previews cache: {e}")
 
     @classmethod
-    def resolve_preview(cls, artist_name: str, track_name: str) -> Optional[str]:
+    def is_preview_expired(cls, url: Optional[str]) -> bool:
+        """Checks if a Deezer preview token has expired or is about to expire."""
+        if not url:
+            return True
+        import re
+        import time
+        m = re.search(r'exp=(\d+)', url)
+        if not m:
+            return False
+        exp_ts = int(m.group(1))
+        # Consider expired if within 60 seconds of expiration
+        return time.time() >= (exp_ts - 60)
+
+    @classmethod
+    def resolve_preview(cls, artist_name: str, track_name: str, force_refresh: bool = False) -> Optional[str]:
         """
         Looks up a 30s preview mp3 URL for a given artist and track name.
         Returns a direct audio stream URL or None.
+        If the cached token has expired, re-queries Deezer for a fresh URL.
         """
         if not track_name:
             return None
 
         cls._ensure_cache_loaded()
         cache_key = f"{artist_name.lower().strip()} - {track_name.lower().strip()}"
-        if cache_key in cls._memory_cache:
-            return cls._memory_cache[cache_key]
+        cached = cls._memory_cache.get(cache_key)
+        if cached and not force_refresh and not cls.is_preview_expired(cached):
+            return cached
 
         # Clean track name (remove parentheses, feats, etc. for cleaner search)
         import re
