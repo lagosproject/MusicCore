@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     def previews_cache_path(self) -> str:
         return str(Path(self.data_dir) / "previews_cache.json")
 
+    @property
+    def youtube_cache_path(self) -> str:
+        return str(Path(self.data_dir) / "youtube_cache.json")
+
     model_config = SettingsConfigDict(
         env_file=(".env", PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",

@@ -1,9 +1,9 @@
 [project]
 name = "music_core"
-version = "0.1.1"
-description = "Core music and Spotify client library for music management and artist visualization"
+version = "0.2.0"
+description = "Core music and Spotify client library for music management, YouTube resolution, and playlist transfer"
 authors = [
-    { name = "Vant & Antigravity", email = "vant@example.com" }
+    { name = "Pablo Fernandez", email = "pablofdezlagos@gmail.com" }
 ]
 dependencies = [
     "spotipy>=2.24.0",
@@ -11,7 +11,8 @@ dependencies = [
     "loguru>=0.7.0",
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
-    "urllib3>=2.0.0"
+    "urllib3>=2.0.0",
+    "yt-dlp>=2024.0.0"
 ]
 requires-python = ">=3.10"
 
